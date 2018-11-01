@@ -13,33 +13,60 @@ bl_info = {"name": "Object Shake",
             "tracker_url": "https://github.com/thatimster/object-shake", 
             "version":(1,0)}
 
+shakeObjects = []
+
 #Update Functions
+def updateHandler(scn):
+    """ Updates properties every frame on all objects """
+    
+    global shakeObjects
+    if not shakeObjects:
+        return
 
-def noiseFreqUpdate(self, context):
-    """ Applies a given noise frequency to all channels """
+    for eachObj in shakeObjects:
+        ob = scn.objects[eachObj]
+        settings = ob.objSettings[0]
 
-    ob = context.object
-    action = ob.animation_data.action
-    scaleVal = 5 / self.noiseFreq
+        updateNoiseFreq(ob, settings.noiseFreq)
+
+        axis_vect = [settings.useX, settings.useY, settings.useZ]
+        updateNoiseAmp(ob, axis_vect, settings.noiseAmp, settings.ratio)
+
+
+def updateNoiseFreq(obj, amount):
+    """ Applies a given noise frequency to all channels of object """
+
+    action = obj.animation_data.action
+    scaleVal = 5 / amount
     
     for i in ['location', 'rotation_euler']:
         for j in range(3):
             action.fcurves.find(i, index=j).modifiers[0].scale = scaleVal
 
-
-def noiseAmpliUpdate(self, context):
+def updateNoiseAmp(obj, axis_vect, amount, ratio):
     """ Applies a given noise amplitude to all active channels based on ratio """
 
-    ob = context.object
-    action = ob.animation_data.action
-
-    axis_vect = [self.useX, self.useY, self.useZ]
+    action = obj.animation_data.action
     
-    for name, amount in [('location', 1 - self.ratio), ('rotation_euler', self.ratio)]:
+    for name, portion in [('location', 1 - ratio), ('rotation_euler', ratio)]:
         for i in range(3):
             curve = action.fcurves.find(name, index=i)
-            curve.modifiers[0].strength = self.noiseAmpli * int(axis_vect[i]) * amount
+            curve.modifiers[0].strength = amount * int(axis_vect[i]) * portion
 
+def freqMessenger(self, context):
+    """ Passes values to noise update function """
+
+    updateNoiseFreq(context.object, self.noiseFreq)
+
+def ampMessenger(self, context):
+    """ Passes values to noise update function """
+
+    updateNoiseAmp(
+        context.object, 
+        [self.useX, self.useY, self.useZ],
+        self.noiseAmp,
+        self.ratio
+        )
 
 class ObjSettings(bpy.types.PropertyGroup):
     """ Data Structure Holding Custom Variables """
@@ -52,19 +79,19 @@ class ObjSettings(bpy.types.PropertyGroup):
         name="X",
         description = "Use X Axis",
         default = True,
-        update = noiseAmpliUpdate,
+        update = ampMessenger,
     )
     useY = bpy.props.BoolProperty(
         name="Y",
         description = "Use Y Axis",
         default = True,
-        update = noiseAmpliUpdate,
+        update = ampMessenger,
     )
     useZ = bpy.props.BoolProperty(
         name="Z",
         description = "Use Z Axis",
         default = True,
-        update = noiseAmpliUpdate,
+        update = ampMessenger,
     )
     ratio = bpy.props.FloatProperty(
         name = "Loc/Rot Ratio",
@@ -72,20 +99,20 @@ class ObjSettings(bpy.types.PropertyGroup):
         default = 0.5,
         min = 0,
         max = 1,
-        update = noiseAmpliUpdate,
+        update = ampMessenger,
     )
     noiseFreq = bpy.props.FloatProperty(
         name = "Speed",
         default = 0.5,
         min = 0.001,
         precision = 3,
-        update = noiseFreqUpdate,
+        update = freqMessenger,
     )
-    noiseAmpli = bpy.props.FloatProperty(
+    noiseAmp = bpy.props.FloatProperty(
         name = "Amount",
         default = 0.5,
-        min = 0.001,
-        update = noiseAmpliUpdate,
+        precision = 3,
+        update = ampMessenger,
     )
 
 
@@ -108,10 +135,13 @@ class INIT_OT_properties(bpy.types.Operator):
             for j in range(3):
                 mod = action.fcurves.find(i, index=j).modifiers.new("NOISE")
                 mod.scale = 5 / ob.objSettings[0].noiseFreq
-                mod.strength = ob.objSettings[0].noiseAmpli
+                mod.strength = ob.objSettings[0].noiseAmp
                 mod.phase = random.random() * 10
 
         ob.objSettings[0].insertFrame = context.scene.frame_current
+
+        global shakeObjects
+        shakeObjects.append(ob.name)
         
         return {"FINISHED"}
 
@@ -135,12 +165,15 @@ class REMOVE_OT_shake(bpy.types.Operator):
         scn.update()
 
         #go to keyframe
-        scn.frame_current = ob.objSettings[0].insertFrame
+        scn.frame_set(ob.objSettings[0].insertFrame)
 
         ob.keyframe_delete("location")
         ob.keyframe_delete("rotation_euler")
 
         ob.objSettings.remove(0)
+
+        global shakeObjects
+        shakeObjects.remove(ob.name)
 
         return {"FINISHED"}
 
@@ -197,10 +230,14 @@ class OBJECTSHAKE_PT_panel(bpy.types.Panel):
         ob = context.object
 
         #shown if scene hasn't been setup
-        if ob != None and len(ob.objSettings) == 0:
+        if ob == None:
+            layout.label("Select an Object")
+
+        elif len(ob.objSettings) == 0:
             row = layout.row()
             row.scale_y = 1.5
             row.operator('init.prop', icon='FILE_TICK')
+
         else:
             current = ob.objSettings[0]
 
@@ -215,7 +252,7 @@ class OBJECTSHAKE_PT_panel(bpy.types.Panel):
             
             col2 = layout.column(align = True)
             col2.prop(current, "noiseFreq")
-            col2.prop(current, "noiseAmpli")
+            col2.prop(current, "noiseAmp")
 
             row3 = layout.row()
             row3.scale_y = 1.5
@@ -230,7 +267,10 @@ class OBJECTSHAKE_PT_panel(bpy.types.Panel):
 def register():
     bpy.utils.register_module(__name__)
     bpy.types.Object.objSettings = bpy.props.CollectionProperty(type=ObjSettings)
+    bpy.app.handlers.frame_change_pre.append(updateHandler)
 
 
 def unregister():
     bpy.utils.unregister_module(__name__)
+    if updateHandler in bpy.app.handlers.frame_change_pre:
+        bpy.app.handlers.frame_change_pre.remove(updateHandler)
