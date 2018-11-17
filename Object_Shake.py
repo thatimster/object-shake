@@ -11,7 +11,7 @@ bl_info = {"name": "Object Shake",
             "warning": "",
             "wiki_url":"", 
             "tracker_url": "https://github.com/thatimster/object-shake", 
-            "version":(1,0)}
+            "version":(1,1)}
 
 shakeObjects = []
 
@@ -30,7 +30,7 @@ def updateHandler(scn):
         updateNoiseFreq(ob, settings.noiseFreq)
 
         axis_vect = [settings.useX, settings.useY, settings.useZ]
-        updateNoiseAmp(ob, axis_vect, settings.noiseAmp, settings.ratio)
+        updateNoiseAmp(ob, axis_vect, settings.noiseAmp, settings.ratioLoc, settings.ratioRot)
 
 
 def updateNoiseFreq(obj, amount):
@@ -43,12 +43,12 @@ def updateNoiseFreq(obj, amount):
         for j in range(3):
             action.fcurves.find(i, index=j).modifiers[0].scale = scaleVal
 
-def updateNoiseAmp(obj, axis_vect, amount, ratio):
+def updateNoiseAmp(obj, axis_vect, amount, ratioLoc, ratioRot):
     """ Applies a given noise amplitude to all active channels based on ratio """
 
     action = obj.animation_data.action
     
-    for name, portion in [('location', 1 - ratio), ('rotation_euler', ratio)]:
+    for name, portion in [('location', ratioLoc / 100), ('rotation_euler', ratioRot / 100)]:
         for i in range(3):
             curve = action.fcurves.find(name, index=i)
             curve.modifiers[0].strength = amount * int(axis_vect[i]) * portion
@@ -65,7 +65,8 @@ def ampMessenger(self, context):
         context.object, 
         [self.useX, self.useY, self.useZ],
         self.noiseAmp,
-        self.ratio
+        self.ratioLoc,
+        self.ratioRot
         )
 
 class ObjSettings(bpy.types.PropertyGroup):
@@ -93,12 +94,22 @@ class ObjSettings(bpy.types.PropertyGroup):
         default = True,
         update = ampMessenger,
     )
-    ratio = bpy.props.FloatProperty(
-        name = "Loc/Rot Ratio",
-        description = "Ratio between Location Movement and Rotation Movement",
-        default = 0.5,
+    ratioLoc = bpy.props.IntProperty(
+        name = "Location",
+        description = "Amount of Location Movement",
+        subtype="PERCENTAGE",
+        default = 100,
         min = 0,
-        max = 1,
+        max = 100,
+        update = ampMessenger,
+    )
+    ratioRot = bpy.props.IntProperty(
+        name = "Rotation", 
+        description = "Amount of Rotational Movement",
+        subtype = "PERCENTAGE",
+        default = 100,
+        min = 0,
+        max = 100,
         update = ampMessenger,
     )
     noiseFreq = bpy.props.FloatProperty(
@@ -241,18 +252,19 @@ class OBJECTSHAKE_PT_panel(bpy.types.Panel):
         else:
             current = ob.objSettings[0]
 
-            row = layout.row()
-            row.prop(current, "ratio", slider=True)
-
             col = layout.column(align = True)
-            row2 = col.row(align = True)
+            col.prop(current, "ratioLoc", slider=True)
+            col.prop(current, "ratioRot", slider=True)
+
+            col2 = layout.column(align = True)
+            row2 = col2.row(align = True)
             row2.prop(current, "useX")
             row2.prop(current, "useY")
             row2.prop(current, "useZ")
             
-            col2 = layout.column(align = True)
-            col2.prop(current, "noiseFreq")
-            col2.prop(current, "noiseAmp")
+            col3 = layout.column(align = True)
+            col3.prop(current, "noiseFreq")
+            col3.prop(current, "noiseAmp")
 
             row3 = layout.row()
             row3.scale_y = 1.5
