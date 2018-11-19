@@ -13,18 +13,17 @@ bl_info = {"name": "Object Shake",
             "tracker_url": "https://github.com/thatimster/object-shake", 
             "version":(1,1)}
 
-shakeObjects = []
+shakeObjects = set()
 
 #Update Functions
 def updateHandler(scn):
     """ Updates properties every frame on all objects """
-    
     global shakeObjects
-    if not shakeObjects:
+    if len(shakeObjects) == 0:
         return
 
-    for eachObj in shakeObjects:
-        ob = scn.objects[eachObj]
+    for o in shakeObjects:
+        ob = scn.objects[o]
         settings = ob.objSettings[0]
 
         updateNoiseFreq(ob, settings.noiseFreq)
@@ -137,6 +136,10 @@ class INIT_OT_properties(bpy.types.Operator):
         context.object.objSettings.add()
         ob = context.object
 
+        if updateHandler not in bpy.app.handlers.frame_change_pre:
+            bpy.app.handlers.frame_change_pre.append(updateHandler)
+
+
         ob.keyframe_insert("location")
         ob.keyframe_insert("rotation_euler")
 
@@ -152,7 +155,7 @@ class INIT_OT_properties(bpy.types.Operator):
         ob.objSettings[0].insertFrame = context.scene.frame_current
 
         global shakeObjects
-        shakeObjects.append(ob.name)
+        shakeObjects.add(ob.name)
         
         return {"FINISHED"}
 
@@ -173,15 +176,19 @@ class REMOVE_OT_shake(bpy.types.Operator):
             for j in range(3):
                 action.fcurves.find(i, index=j).modifiers[0].strength = 0
 
-        scn.update()
+        #remove property animation curves
+        for f in action.fcurves:
+            if f.data_path.startswith("objSettings"):
+                action.fcurves.remove(f)
 
         #go to keyframe
         scn.frame_set(ob.objSettings[0].insertFrame)
+        scn.update()
 
         ob.keyframe_delete("location")
         ob.keyframe_delete("rotation_euler")
 
-        ob.objSettings.remove(0)
+        del ob['objSettings']
 
         global shakeObjects
         shakeObjects.remove(ob.name)
