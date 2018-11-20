@@ -11,7 +11,7 @@ bl_info = {"name": "Object Shake",
             "warning": "",
             "wiki_url":"", 
             "tracker_url": "https://github.com/thatimster/object-shake", 
-            "version":(1,1)}
+            "version":(1,2)}
 
 shakeObjects = set()
 
@@ -59,14 +59,20 @@ def freqMessenger(self, context):
 
 def ampMessenger(self, context):
     """ Passes values to noise update function """
-
     updateNoiseAmp(
         context.object, 
         [self.useX, self.useY, self.useZ],
         self.noiseAmp,
         self.ratioLoc,
         self.ratioRot
-        )
+    )
+        
+
+def getAllSelected(context):
+    """ returns a list of selected objects from the current scene """
+    
+    return [ob for ob in context.selected_objects]
+
 
 class ObjSettings(bpy.types.PropertyGroup):
     """ Data Structure Holding Custom Variables """
@@ -133,29 +139,30 @@ class INIT_OT_properties(bpy.types.Operator):
     bl_label = "Add Shake"
     
     def execute(self, context):
-        context.object.objSettings.add()
-        ob = context.object
 
         if updateHandler not in bpy.app.handlers.frame_change_pre:
             bpy.app.handlers.frame_change_pre.append(updateHandler)
 
+        selectedObjects = getAllSelected(context)
+        
+        for s in selectedObjects:
+            s.objSettings.add()
+            s.keyframe_insert("location")
+            s.keyframe_insert("rotation_euler")
 
-        ob.keyframe_insert("location")
-        ob.keyframe_insert("rotation_euler")
+            action = s.animation_data.action
 
-        action = ob.animation_data.action
+            for i in ['location', 'rotation_euler']:
+                for j in range(3):
+                    mod = action.fcurves.find(i, index=j).modifiers.new("NOISE")
+                    mod.scale = 5 / s.objSettings[0].noiseFreq
+                    mod.strength = s.objSettings[0].noiseAmp
+                    mod.phase = random.random() * 10
 
-        for i in ['location', 'rotation_euler']:
-            for j in range(3):
-                mod = action.fcurves.find(i, index=j).modifiers.new("NOISE")
-                mod.scale = 5 / ob.objSettings[0].noiseFreq
-                mod.strength = ob.objSettings[0].noiseAmp
-                mod.phase = random.random() * 10
+            s.objSettings[0].insertFrame = context.scene.frame_current
 
-        ob.objSettings[0].insertFrame = context.scene.frame_current
-
-        global shakeObjects
-        shakeObjects.add(ob.name)
+            global shakeObjects
+            shakeObjects.add(s.name)
         
         return {"FINISHED"}
 
@@ -167,31 +174,34 @@ class REMOVE_OT_shake(bpy.types.Operator):
     bl_label = "Remove Shake"
 
     def execute(self, context):
-        ob = context.object
+        
+        selectedObjects = getAllSelected(context)
         scn = context.scene
-        action = ob.animation_data.action
 
-        #reset to starting position
-        for i in ['location', 'rotation_euler']:
-            for j in range(3):
-                action.fcurves.find(i, index=j).modifiers[0].strength = 0
+        for s in selectedObjects:
+            action = s.animation_data.action
 
-        #remove property animation curves
-        for f in action.fcurves:
-            if f.data_path.startswith("objSettings"):
-                action.fcurves.remove(f)
+            #reset to starting position
+            for i in ['location', 'rotation_euler']:
+                for j in range(3):
+                    action.fcurves.find(i, index=j).modifiers[0].strength = 0
 
-        #go to keyframe
-        scn.frame_set(ob.objSettings[0].insertFrame)
-        scn.update()
+            #remove property animation curves
+            for f in action.fcurves:
+                if f.data_path.startswith("objSettings"):
+                    action.fcurves.remove(f)
 
-        ob.keyframe_delete("location")
-        ob.keyframe_delete("rotation_euler")
+            #go to keyframe
+            scn.frame_set(s.objSettings[0].insertFrame)
+            scn.update()
 
-        del ob['objSettings']
+            s.keyframe_delete("location")
+            s.keyframe_delete("rotation_euler")
 
-        global shakeObjects
-        shakeObjects.remove(ob.name)
+            del s['objSettings']
+
+            global shakeObjects
+            shakeObjects.remove(s.name)
 
         return {"FINISHED"}
 
@@ -203,12 +213,14 @@ class RANDOMIZE_OT_phase(bpy.types.Operator):
     bl_label = "Randomize"
     
     def execute(self, context):
-        ob = context.object
-        action = ob.animation_data.action
+        selectedObjects = getAllSelected(context)
 
-        for i in ['location', 'rotation_euler']:
-            for j in range(3):
-                action.fcurves.find(i, index=j).modifiers[0].phase = random.random() * 10
+        for s in selectedObjects:
+            action = s.animation_data.action
+
+            for i in ['location', 'rotation_euler']:
+                for j in range(3):
+                    action.fcurves.find(i, index=j).modifiers[0].phase = random.random() * 10
 
         return {"FINISHED"}
 
